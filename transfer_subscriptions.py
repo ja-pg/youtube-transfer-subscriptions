@@ -36,18 +36,24 @@ def get_user_credentials():
     return creds
 
 
-def list_subscriptions(channel_id):
+def list_subscriptions(**extra_args):
     subscriptions = []
     params={
-        "part": "id,snippet", 
-        "channelId": channel_id, 
+        "part": "id,snippet",
         "maxResults": 50
     }
+    params.update(extra_args)
 
     with open("API_TOKEN.txt") as f:
-        youtube = googleapiclient.discovery.build(
-            api_service_name, api_version, developerKey = f.read()
-        )
+        if "mine" in params:
+            credentials = get_user_credentials()
+            youtube = googleapiclient.discovery.build(
+                api_service_name, api_version, credentials=credentials
+            )
+        else:
+            youtube = googleapiclient.discovery.build(
+                api_service_name, api_version, developerKey = f.read()
+            )
 
         while True:
             # Create an API client
@@ -61,11 +67,7 @@ def list_subscriptions(channel_id):
                 params["pageToken"] = response["nextPageToken"]
             else:
                 break
-
-    print(f"Retrieved {len(subscriptions)} channels from subscription list.")
     
-    with open("subscriptions.json", "w") as f:
-        json.dump({"subscriptions": subscriptions}, f)
     return subscriptions
 
 
@@ -77,26 +79,34 @@ def batch_subscribe(channels):
     # Get credentials and create an API client
     credentials = get_user_credentials()
     youtube = googleapiclient.discovery.build(api_service_name, api_version, credentials=credentials)
+    
+    current_subs = set(map(lambda d: d["snippet"]["resourceId"]["channelId"], list_subscriptions(mine=True)))
 
     for channel in channels:
         channel_title = channel["snippet"]["title"]
-        params["body"] = {"snippet": {"resourceId": channel["snippet"]["resourceId"]}}
-        request = youtube.subscriptions().insert(**params)
+        channel_resource_id = channel["snippet"]["resourceId"]
+        channel_id = channel_resource_id["channelId"]
+        if channel_id not in current_subs:
+            params["body"] = {"snippet": {"resourceId": channel_resource_id}}
+            request = youtube.subscriptions().insert(**params)
 
-        try:
-            response = request.execute()
-            print(f"Subscribed to channel {response.get('snippet', {}).get('title')}")
-        except googleapiclient.errors.HttpError as e:
-            print(f"Error when subscribing to channel {channel_title}")
-            print(f"Reason: {e.reason}")
+            try:
+                response = request.execute()
+                print(f"Subscribed to channel {response.get('snippet', {}).get('title')}")
+            except googleapiclient.errors.HttpError as e:
+                print(f"Error when subscribing to channel {channel_title}")
+                print(f"Reason: {e.reason}")
 
 
 def main():
     print("Type the channel id to export subscriptions from:")
     channel_id = input()
-    subs = list_subscriptions(channel_id)
+    subs = list_subscriptions(channelId=channel_id)
+    print(f"Retrieved {len(subs)} channels from subscription list.")
+    with open("subscriptions.json", "w") as f:
+        json.dump({"subscriptions": subs}, f)
+    
     print("Login to the channel to import subscriptions:")
-    # TODO: Limit quota costs of subscription requests calls by first listing import user channels to apply deduplication
     batch_subscribe(subs)
     print("Subscribed to all exported channels.")
 
