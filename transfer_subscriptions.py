@@ -36,7 +36,23 @@ def get_user_credentials():
     return creds
 
 
-def list_subscriptions(**extra_args):
+def get_youtube_api_client(authenticated=False):
+    if authenticated:
+        # Get credentials and create an API client
+        credentials = get_user_credentials()
+        youtube = googleapiclient.discovery.build(
+            api_service_name, api_version, credentials=credentials
+            )
+    else:
+        with open("API_TOKEN.txt") as f:
+            youtube = googleapiclient.discovery.build(
+                    api_service_name, api_version, developerKey = f.read()
+                )
+    
+    return youtube
+    
+
+def list_subscriptions(api_client, **extra_args):
     subscriptions = []
     params={
         "part": "id,snippet",
@@ -44,51 +60,36 @@ def list_subscriptions(**extra_args):
     }
     params.update(extra_args)
 
-    with open("API_TOKEN.txt") as f:
-        if "mine" in params:
-            credentials = get_user_credentials()
-            youtube = googleapiclient.discovery.build(
-                api_service_name, api_version, credentials=credentials
-            )
+    while True:
+        # Create an API client
+        request = api_client.subscriptions().list(
+            **params
+        )
+        response = request.execute()
+
+        subscriptions.extend(response["items"])
+        if response.get("nextPageToken"):
+            params["pageToken"] = response["nextPageToken"]
         else:
-            youtube = googleapiclient.discovery.build(
-                api_service_name, api_version, developerKey = f.read()
-            )
-
-        while True:
-            # Create an API client
-            request = youtube.subscriptions().list(
-                **params
-            )
-            response = request.execute()
-
-            subscriptions.extend(response["items"])
-            if response.get("nextPageToken"):
-                params["pageToken"] = response["nextPageToken"]
-            else:
-                break
+            break
     
     return subscriptions
 
 
-def batch_subscribe(channels):
+def batch_subscribe(api_client, channels, ignore_channels=[]):
     params={
         "part": "snippet"
     }
-
-    # Get credentials and create an API client
-    credentials = get_user_credentials()
-    youtube = googleapiclient.discovery.build(api_service_name, api_version, credentials=credentials)
     
-    current_subs = set(map(lambda d: d["snippet"]["resourceId"]["channelId"], list_subscriptions(mine=True)))
+    current_suscribed_channels = set(map(lambda d: d["snippet"]["resourceId"]["channelId"], ignore_channels))
 
     for channel in channels:
         channel_title = channel["snippet"]["title"]
         channel_resource_id = channel["snippet"]["resourceId"]
         channel_id = channel_resource_id["channelId"]
-        if channel_id not in current_subs:
+        if channel_id not in current_suscribed_channels:
             params["body"] = {"snippet": {"resourceId": channel_resource_id}}
-            request = youtube.subscriptions().insert(**params)
+            request = api_client.subscriptions().insert(**params)
 
             try:
                 response = request.execute()
@@ -101,13 +102,16 @@ def batch_subscribe(channels):
 def main():
     print("Type the channel id to export subscriptions from:")
     channel_id = input()
-    subs = list_subscriptions(channelId=channel_id)
-    print(f"Retrieved {len(subs)} channels from subscription list.")
+    client = get_youtube_api_client(authenticated=False)
+    export_subs = list_subscriptions(client, channelId=channel_id)
+    print(f"Retrieved {len(export_subs)} channels from subscription list.")
     with open("subscriptions.json", "w") as f:
-        json.dump({"subscriptions": subs}, f)
+        json.dump({"subscriptions": export_subs}, f)
     
     print("Login to the channel to import subscriptions:")
-    batch_subscribe(subs)
+    authenticated_client = get_youtube_api_client(authenticated=True)
+    current_subs = list_subscriptions(api_client=authenticated_client, mine=True)
+    batch_subscribe(authenticated_client, export_subs, current_subs)
     print("Subscribed to all exported channels.")
 
 
