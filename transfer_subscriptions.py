@@ -1,10 +1,11 @@
 import json
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
+import os
+
 import googleapiclient.discovery
 import googleapiclient.errors
-import os
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
@@ -32,7 +33,7 @@ def get_user_credentials():
         # Save the credentials for the next run
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
-    
+
     return creds
 
 
@@ -46,15 +47,15 @@ def get_youtube_api_client(authenticated=False):
     else:
         with open("API_TOKEN.txt") as f:
             youtube = googleapiclient.discovery.build(
-                    api_service_name, api_version, developerKey = f.read()
+                    api_service_name, api_version, developerKey=f.read()
                 )
-    
+
     return youtube
-    
+
 
 def list_subscriptions(api_client, **extra_args):
     subscriptions = []
-    params={
+    params = {
         "part": "id,snippet",
         "maxResults": 50
     }
@@ -72,15 +73,15 @@ def list_subscriptions(api_client, **extra_args):
             params["pageToken"] = response["nextPageToken"]
         else:
             break
-    
+
     return subscriptions
 
 
 def batch_subscribe(api_client, channels, ignore_channels=[]):
-    params={
+    params = {
         "part": "snippet"
     }
-    
+
     current_suscribed_channels = set(map(lambda d: d["snippet"]["resourceId"]["channelId"], ignore_channels))
 
     for channel in channels:
@@ -107,7 +108,7 @@ def main():
     print(f"Retrieved {len(export_subs)} channels from subscription list.")
     with open("subscriptions.json", "w") as f:
         json.dump({"subscriptions": export_subs}, f)
-    
+
     print("Login to the channel to import subscriptions:")
     authenticated_client = get_youtube_api_client(authenticated=True)
     current_subs = list_subscriptions(api_client=authenticated_client, mine=True)
